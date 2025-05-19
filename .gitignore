@@ -1,0 +1,17 @@
+# Vosk models (large files)
+models/
+
+# Virtual environment
+venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local configuration
+.env
+
+# OS specific files
+.DS_Store
+Thumbs.db
