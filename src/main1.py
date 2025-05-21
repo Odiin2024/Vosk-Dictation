@@ -18,13 +18,14 @@ MODEL_PATH = MODEL_PATH_CWD if os.path.exists(MODEL_PATH_CWD) else MODEL_PATH_RE
 
 # Styling for Dark Mode
 BG_COLOR = "#333333"  # Dark grey background
-FG_COLOR = "#E0B0FF"  # Mauve foreground
+FG_COLOR = "#CCCCCC"  # Light grey foreground for visibility
 BUTTON_BG = "#555555"
 BUTTON_FG = "#E0B0FF"
 STATUS_FG = "#90EE90"  # Light green for status
+PLACEHOLDER_FG = "#888888"  # Lighter grey to simulate 60% transparency for placeholders
 
 # Constants
-MAX_HISTORY_ENTRIES = 6
+MAX_ARCHIVE_ENTRIES = 6
 SILENCE_THRESHOLD = 100  # Adjust threshold as needed
 MAX_SILENCE_DURATION = 4  # Silence duration in seconds
 
@@ -32,13 +33,15 @@ class DictationApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Voice Dictation Tool")
-        self.root.geometry("600x400")
+        self.root.geometry("650x520")  # Fixed size to fit dimensions
+        self.root.resizable(False, False)  # Prevent resizing of the main window
         self.root.configure(bg=BG_COLOR)
         
         # Setup variables
         self.is_recording = False
-        self.vdic_history = deque(maxlen=MAX_HISTORY_ENTRIES)  # History entries as vdicHistory1 to vdicHistory6
-        self.history_position = -1  # -1 means Active Speech Window is not showing history
+        self.vdic_history = list()  # Unlimited entries for vdicHistory1 to vdicHistoryn
+        self.archive = deque(maxlen=MAX_ARCHIVE_ENTRIES)  # Archive entries limited to 6 (archive1 to archive6)
+        self.history_position = -1  # -1 means not showing history
         self.silence_timer = 0
         self.last_speech_time = time.time()
         self.audio_queue = queue.Queue()
@@ -70,8 +73,8 @@ class DictationApp:
         button_frame = tk.Frame(self.root, bg=BG_COLOR)
         button_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # Start/Stop button
-        self.toggle_button = tk.Button(button_frame, text="Start Recording", command=self.toggle_recording, bg=BUTTON_BG, fg=BUTTON_FG)
+        # Toggle Record/Stop button
+        self.toggle_button = tk.Button(button_frame, text="Record", command=self.toggle_recording, bg=BUTTON_BG, fg=BUTTON_FG)
         self.toggle_button.pack(side=tk.LEFT, padx=5)
         
         # Edit button
@@ -82,17 +85,43 @@ class DictationApp:
         self.status_label = tk.Label(button_frame, text="Idle", bg=BG_COLOR, fg=STATUS_FG)
         self.status_label.pack(side=tk.RIGHT, padx=5)
         
-        # Use a PanedWindow to hold the Active Speech Window and the vdicHistory area
-        self.paned_window = PanedWindow(self.root, orient=VERTICAL, bg=BG_COLOR)
-        self.paned_window.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # Active Speech Window (mainHistory accumulation)
-        self.active_speech_window = scrolledtext.ScrolledText(self.paned_window, wrap=tk.WORD, bg=BG_COLOR, fg=FG_COLOR)
-        self.paned_window.add(self.active_speech_window)
-
-        # vdicHistory Text area
-        self.history_area = scrolledtext.ScrolledText(self.paned_window, wrap=tk.WORD, height=5, state=tk.DISABLED, bg=BG_COLOR, fg=FG_COLOR)
-        self.paned_window.add(self.history_area)
+        # Use a Frame to hold vertical layout for text areas with proper alignment
+        text_frame = tk.Frame(self.root, bg=BG_COLOR)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)  # Adjusted padding to prevent left push
+        
+        # Archive1 Text area (top, aspect ratio 13:4)
+        self.archive1_area = tk.Text(text_frame, wrap=tk.WORD, height=4, state=tk.DISABLED, bg=BG_COLOR, fg=FG_COLOR)
+        self.archive1_area.pack(fill=tk.X, pady=2)
+        self.archive1_area.config(state=tk.NORMAL)
+        self.archive1_area.insert("2.0", "\n<< -- Archive Entry 1 -- >>")
+        self.archive1_area.tag_configure("center", justify='center')
+        self.archive1_area.tag_configure("placeholder", foreground=PLACEHOLDER_FG)
+        self.archive1_area.tag_add("center", "2.0", "2.end")
+        self.archive1_area.tag_add("placeholder", "2.0", "2.end")
+        self.archive1_area.config(state=tk.DISABLED)
+        
+        # Spacer frame between Archive1 and vdicHistory
+        spacer1 = tk.Frame(text_frame, height=5, bg=BG_COLOR)
+        spacer1.pack(fill=tk.X)
+        
+        # vdicHistory Text area (middle, aspect ratio 13:8)
+        self.history_area = tk.Text(text_frame, wrap=tk.WORD, height=8, state=tk.DISABLED, bg=BG_COLOR, fg=FG_COLOR)
+        self.history_area.pack(fill=tk.X, pady=2)
+        
+        # Spacer frame between vdicHistory and Archive6
+        spacer2 = tk.Frame(text_frame, height=5, bg=BG_COLOR)
+        spacer2.pack(fill=tk.X)
+        
+        # Archive6 Text area (bottom, aspect ratio 13:4)
+        self.archive6_area = tk.Text(text_frame, wrap=tk.WORD, height=4, state=tk.DISABLED, bg=BG_COLOR, fg=FG_COLOR)
+        self.archive6_area.pack(fill=tk.X, pady=2)
+        self.archive6_area.config(state=tk.NORMAL)
+        self.archive6_area.insert("2.0", "\n<< -- Archive Entry 6 -- >>")
+        self.archive6_area.tag_configure("center", justify='center')
+        self.archive6_area.tag_configure("placeholder", foreground=PLACEHOLDER_FG)
+        self.archive6_area.tag_add("center", "2.0", "2.end")
+        self.archive6_area.tag_add("placeholder", "2.0", "2.end")
+        self.archive6_area.config(state=tk.DISABLED)
 
     def toggle_recording(self):
         if not hasattr(self, 'model'):  # Check if model loaded successfully
@@ -109,12 +138,12 @@ class DictationApp:
             self.toggle_edit_mode()  # Exit edit mode if active
             
         self.is_recording = True
-        self.toggle_button.config(text="Stop Recording")
+        self.toggle_button.config(text="Stop")
         self.status_label.config(text="Listening...")
         
-        # Clear Active Speech Window for new recording if not in history
-        if self.history_position == -1:
-            self.active_speech_window.delete("1.0", tk.END)
+        # Push current vdicHistory content to archive if there is input
+        if self.vdic_history:
+            self.push_to_archive()
             
         # Start recording thread
         self.recording_thread = threading.Thread(target=self.record_audio)
@@ -128,8 +157,17 @@ class DictationApp:
         
     def stop_recording(self):
         self.is_recording = False
-        self.toggle_button.config(text="Start Recording")
+        self.toggle_button.config(text="Record")
         self.status_label.config(text="Processing...")
+        
+        # Safeguard to remove 'the' if it's the only text generated
+        if self.vdic_history:
+            last_entry = self.vdic_history[-1].strip().lower()
+            # Check if the last entry is only 'the' or multiple instances of 'the'
+            if last_entry and last_entry.replace('the', '').replace(' ', '') == '':
+                self.vdic_history.pop()
+                self.history_position = len(self.vdic_history) - 1 if self.vdic_history else -1
+                self.update_history_display()
         
     def record_audio(self):
         with sd.InputStream(samplerate=self.samplerate, channels=1, dtype='int16') as stream:
@@ -158,17 +196,14 @@ class DictationApp:
                     result = json.loads(self.recognizer.Result())
                     if result.get("text"):
                         current_text = result["text"]
-                        self.update_text(current_text)
                         # Auto save to vdicHistory on final result
                         self.save_to_vdic_history(current_text)
                         current_text = ""
-                        self.active_speech_window.delete("1.0", tk.END)
                 
                 else:
                     partial_result = json.loads(self.recognizer.PartialResult())
                     if partial_result.get("partial"):
                         current_text = partial_result["partial"]
-                        self.update_text(current_text)
                 
                 # Check if silence exceeds threshold
                 silence_duration = silence_counter * (self.samplerate // 10) / self.samplerate
@@ -176,7 +211,6 @@ class DictationApp:
                     if current_text:
                         self.save_to_vdic_history(current_text)
                         current_text = ""
-                        self.active_speech_window.delete("1.0", tk.END)
                     # Reset silence counter
                     silence_counter = 0
             else:
@@ -185,52 +219,78 @@ class DictationApp:
         # After loop ends, save any remaining text to vdicHistory
         if current_text:
             self.save_to_vdic_history(current_text)
-            self.active_speech_window.delete("1.0", tk.END)
             
         # Set status to Idle
         self.root.after(0, lambda: self.status_label.config(text="Idle"))
     
-    def update_text(self, text):
-        self.active_speech_window.delete("1.0", tk.END)
-        self.active_speech_window.insert("1.0", text)
-        
     def save_to_vdic_history(self, text):
         if text.strip():  # Only save non-empty text
-            # Add new text as vdicHistory1 (most recent entry)
-            self.vdic_history.appendleft(text)
-            self.history_position = 0  # Set position to vdicHistory1
-            # Update clipboard with vdicHistory1
-            pyperclip.copy(text)
+            # Ignore if the text is only 'the' or multiple instances of 'the'
+            if text.strip().lower().replace('the', '').replace(' ', '') == '':
+                return
+            # Add new text as the last entry (most recent at bottom)
+            self.vdic_history.append(text)
+            self.history_position = len(self.vdic_history) - 1  # Set position to the last entry
+            # Update clipboard with the latest entry, removing trailing 'the'
+            clipboard_text = text.rstrip()
+            if clipboard_text.lower().endswith(' the'):
+                clipboard_text = clipboard_text[:-4].rstrip()
+            pyperclip.copy(clipboard_text if clipboard_text else text)
             self.update_history_display()
         
     def update_history_display(self):
+        # Update vdicHistory area
         self.history_area.config(state=tk.NORMAL)
         self.history_area.delete("1.0", tk.END)
         # Display vdicHistory entries without numbering as a contiguous block
         for entry in self.vdic_history:
             self.history_area.insert(tk.END, f"{entry}\n")
         self.history_area.config(state=tk.DISABLED)
-        self.history_area.see(tk.END)
+
+        # Update Archive1 area
+        self.archive1_area.config(state=tk.NORMAL)
+        self.archive1_area.delete("1.0", tk.END)
+        if len(self.archive) > 0:
+            self.archive1_area.insert(tk.END, self.archive[0])
+        else:
+            self.archive1_area.insert("2.0", "\n<< -- Archive Entry 1 -- >>")
+            self.archive1_area.tag_configure("center", justify='center')
+            self.archive1_area.tag_configure("placeholder", foreground=PLACEHOLDER_FG)
+            self.archive1_area.tag_add("center", "2.0", "2.end")
+            self.archive1_area.tag_add("placeholder", "2.0", "2.end")
+        self.archive1_area.config(state=tk.DISABLED)
+
+        # Update Archive6 area
+        self.archive6_area.config(state=tk.NORMAL)
+        self.archive6_area.delete("1.0", tk.END)
+        if len(self.archive) == MAX_ARCHIVE_ENTRIES:
+            self.archive6_area.insert(tk.END, self.archive[-1])
+        else:
+            self.archive6_area.insert("2.0", "\n<< -- Archive Entry 6 -- >>")
+            self.archive6_area.tag_configure("center", justify='center')
+            self.archive6_area.tag_configure("placeholder", foreground=PLACEHOLDER_FG)
+            self.archive6_area.tag_add("center", "2.0", "2.end")
+            self.archive6_area.tag_add("placeholder", "2.0", "2.end")
+        self.archive6_area.config(state=tk.DISABLED)
 
     def navigate_history_up(self, event=None):
         if self.vdic_history and self.history_position > 0:
             self.history_position -= 1
-            self.update_text(list(self.vdic_history)[self.history_position])
-            
+            # No UI update since Active Speech Window is removed, but conceptually moving up to older entries
+        
     def navigate_history_down(self, event=None):
         if self.vdic_history and self.history_position < len(self.vdic_history) - 1:
             self.history_position += 1
-            self.update_text(list(self.vdic_history)[self.history_position])
+            # No UI update since Active Speech Window is removed, but conceptually moving down to newer entries
     
     def toggle_edit_mode(self):
         if not self.edit_mode:
-            # Enter Edit Mode, load vdicHistory1 if available
+            # Enter Edit Mode, load the latest vdicHistory entry if available
             if self.vdic_history:
                 self.edit_mode = True
                 self.edit_button.config(text="Save")
-                self.active_speech_window.config(state=tk.NORMAL)
-                self.history_position = 0  # Set to vdicHistory1
-                self.update_text(list(self.vdic_history)[0])
+                self.history_area.config(state=tk.NORMAL)
+                self.history_position = len(self.vdic_history) - 1  # Set to the latest entry
                 self.status_label.config(text="Editing...")
             else:
                 self.status_label.config(text="No history to edit")
@@ -239,17 +299,30 @@ class DictationApp:
             # Exit Edit Mode, save changes to vdicHistory
             self.edit_mode = False
             self.edit_button.config(text="Edit")
-            current_text = self.active_speech_window.get("1.0", tk.END).strip()
+            current_text = self.history_area.get("1.0", tk.END).strip()
             if current_text and self.history_position >= 0 and self.history_position < len(self.vdic_history):
                 # Update the history entry with edited text
-                history_list = list(self.vdic_history)
-                history_list[self.history_position] = current_text
-                self.vdic_history = deque(history_list, maxlen=MAX_HISTORY_ENTRIES)
-                pyperclip.copy(current_text)  # Update clipboard
+                self.vdic_history[self.history_position] = current_text
+                # Update clipboard, removing trailing 'the'
+                clipboard_text = current_text.rstrip()
+                if clipboard_text.lower().endswith(' the'):
+                    clipboard_text = clipboard_text[:-4].rstrip()
+                pyperclip.copy(clipboard_text if clipboard_text else current_text)
                 self.update_history_display()
-            self.active_speech_window.config(state=tk.DISABLED)
+            self.history_area.config(state=tk.DISABLED)
             self.status_label.config(text="Saved")
             self.root.after(2000, lambda: self.status_label.config(text="Idle" if not self.is_recording else "Listening..."))
+
+    def push_to_archive(self):
+        if self.vdic_history:
+            # Push the latest vdicHistory content to archive1 only if there is text
+            archive_content = "\n".join(self.vdic_history)  # Combine all current history entries as one archive entry
+            if archive_content.strip():
+                self.archive.appendleft(archive_content)
+            # Clear vdicHistory for new recording
+            self.vdic_history = []
+            self.history_position = -1
+            self.update_history_display()
 
 if __name__ == "__main__":
     root = tk.Tk()
